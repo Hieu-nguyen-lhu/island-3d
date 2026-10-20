@@ -1,0 +1,868 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <script>
+    window.__globalErrors = [];
+    window.onerror = function(msg, url, line, col, err) {
+      window.__globalErrors.push({msg, url, line, col, err: err ? err.stack : null});
+    };
+    window.addEventListener('unhandledrejection', function(event) {
+      window.__globalErrors.push({msg: 'Promise rejection: ' + event.reason, err: event.reason ? event.reason.stack : null});
+    });
+  </script>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>Island of Solitude - Mediterranean Diorama 3D</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
+    body, html {
+      width: 100%; height: 100%; overflow: hidden;
+      background-color: #031b2e;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    }
+    #canvas-container { width: 100%; height: 100%; position: absolute; top: 0; left: 0; outline: none; }
+    .hud { position: absolute; pointer-events: none; z-index: 10; }
+    .hud-header {
+      top: 24px; left: 24px; color: #ffffff;
+      text-shadow: 0 2px 10px rgba(0,0,0,0.6);
+    }
+    .hud-title {
+      font-size: 26px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase;
+      background: linear-gradient(135deg, #ffffff 40%, #ffd6a5 100%);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    }
+    .hud-subtitle { font-size: 13px; color: rgba(255, 255, 255, 0.92); margin-top: 4px; letter-spacing: 0.8px; }
+    .hud-controls {
+      top: 24px; right: 24px; display: flex; flex-direction: column; gap: 10px; pointer-events: auto;
+    }
+    .btn-group {
+      display: flex; background: rgba(10, 22, 35, 0.72);
+      backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+      border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 12px; padding: 4px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.38);
+    }
+    .btn {
+      background: transparent; border: none; color: rgba(255, 255, 255, 0.82);
+      padding: 8px 14px; font-size: 12px; font-weight: 600; cursor: pointer; border-radius: 8px;
+      transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    .btn:hover { color: #ffffff; background: rgba(255, 255, 255, 0.15); }
+    .btn.active {
+      background: linear-gradient(135deg, #ff9f43, #ee5253); color: #ffffff;
+      box-shadow: 0 4px 14px rgba(238, 82, 83, 0.45);
+    }
+    .btn-action {
+      background: rgba(10, 22, 35, 0.72); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+      border: 1px solid rgba(255, 255, 255, 0.2); color: #ffffff; padding: 8px 14px; font-size: 12px;
+      font-weight: 500; border-radius: 8px; cursor: pointer; transition: all 0.2s;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.25);
+    }
+    .btn-action:hover { background: rgba(255, 255, 255, 0.25); color: #ffffff; }
+    #btn-cinematic.active {
+      background: linear-gradient(135deg, #f59e0b, #d97706);
+      color: #ffffff;
+      box-shadow: 0 4px 14px rgba(245, 158, 11, 0.45);
+      border-color: rgba(255, 255, 255, 0.4);
+    }
+    .cinematic-bar {
+      position: absolute; left: 0; width: 100%; height: 0;
+      background: #000000; z-index: 9;
+      transition: height 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+      pointer-events: none;
+    }
+    .cinematic-bar.top { top: 0; }
+    .cinematic-bar.bottom { bottom: 0; }
+    body.cinematic-active .cinematic-bar { height: 58px; }
+    body.cinematic-active .hud-header { opacity: 0.3; transition: opacity 0.5s; }
+    body.cinematic-active .hud-header:hover { opacity: 1.0; }
+    body.cinematic-active .tip { opacity: 0; }
+    .tip { font-size: 11px; color: rgba(255,255,255,0.75); margin-top: 4px; text-shadow: 0 1px 4px rgba(0,0,0,0.6); }
+    #loading {
+      position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+      background: #081726; display: flex; flex-direction: column; justify-content: center; align-items: center;
+      z-index: 100; color: #e2e8f0; transition: opacity 0.6s ease-out;
+    }
+    .spinner {
+      width: 52px; height: 52px; border: 3px solid rgba(255,255,255,0.12);
+      border-top-color: #f97316; border-radius: 50%; animation: spin 1s linear infinite; margin-bottom: 16px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    #progress-text { font-size: 13px; letter-spacing: 1.5px; text-transform: uppercase; color: #cbd5e1; }
+  </style>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <div class="cinematic-bar top"></div>
+  <div class="cinematic-bar bottom"></div>
+
+  <div id="loading">
+    <div class="spinner"></div>
+    <div id="progress-text">Loading 3D Mediterranean Diorama (1M Triangles)...</div>
+  </div>
+
+  <div id="canvas-container"></div>
+
+  <div class="hud hud-header">
+    <div class="hud-title">Island of Solitude</div>
+    <div class="hud-subtitle">Mediterranean Coastal Cottage &bull; Hyper3D Rodin PBR</div>
+  </div>
+
+  <div class="hud hud-controls">
+    <div class="btn-group">
+      <button class="btn active" id="btn-noon">Mediterranean Azure</button>
+      <button class="btn" id="btn-golden">Golden Hour</button>
+      <button class="btn" id="btn-sunset">Sunset</button>
+      <button class="btn" id="btn-night">Moonlight</button>
+    </div>
+    <div style="display:flex; gap:8px;">
+      <button class="btn-action" id="btn-switch-model">Mode: PBR Textures</button>
+      <button class="btn-action" id="btn-cinematic">🎬 Góc nhìn điện ảnh</button>
+      <button class="btn-action" id="btn-reset">Reset View</button>
+      <button class="btn-action" id="btn-anim">Pause Waves</button>
+    </div>
+    <div class="tip">Left Drag: Orbit &bull; Right Drag: Pan &bull; Scroll: Zoom</div>
+  </div>
+
+  <script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+    import { RGBELoader } from 'three/addons/loaders/RGBELoader.js';
+    import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+
+    window.THREE = THREE;
+
+    // -------------------------------------------------------------
+    // Renderer, Scene & Camera Setup
+    // -------------------------------------------------------------
+    const container = document.getElementById('canvas-container');
+    const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.05;
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    container.appendChild(renderer.domElement);
+    window.renderer = renderer;
+
+    const scene = new THREE.Scene();
+    window.scene = scene;
+
+    const camera = new THREE.PerspectiveCamera(35, window.innerWidth / window.innerHeight, 0.1, 1500);
+    // Balanced diorama perspective revealing both island and the atmospheric sky
+    const defaultCamPos = new THREE.Vector3(13.5, 5.4, 13.5);
+    const defaultCamTarget = new THREE.Vector3(0.0, 1.8, 0.0);
+    camera.position.copy(defaultCamPos);
+    window.camera = camera;
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.target.copy(defaultCamTarget);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.05;
+    controls.maxPolarAngle = Math.PI / 2 - 0.02;
+    controls.minDistance = 4;
+    controls.maxDistance = 55;
+    window.controls = controls;
+
+    // -------------------------------------------------------------
+    // Authored Equirectangular Skies: Daytime HDR, Sunset Panorama, Night Galaxy
+    // -------------------------------------------------------------
+    let hdrNoon = null;
+    const rgbeLoader = new RGBELoader();
+
+    rgbeLoader.load('./textures/aristea_wreck_puresky_1k.hdr', (tex) => {
+      tex.mapping = THREE.EquirectangularReflectionMapping;
+      hdrNoon = tex;
+      if (!scene.background) {
+        scene.environment = hdrNoon;
+        scene.background = hdrNoon;
+        scene.backgroundBlurriness = 0.0;
+        scene.environmentIntensity = 1.15;
+      }
+    });
+
+    // Procedural Vibrant Mediterranean Sunset Equirectangular Panorama
+    function createSunsetSkyTexture() {
+      const canvas = document.createElement('canvas');
+      canvas.width = 2048;
+      canvas.height = 1024;
+      const ctx = canvas.getContext('2d');
+
+      // Atmospheric vertical dusk gradient
+      const grad = ctx.createLinearGradient(0, 0, 0, 1024);
+      grad.addColorStop(0.00, '#10172e'); // Zenith: twilight indigo
+      grad.addColorStop(0.28, '#2a2040'); // Twilight violet
+      grad.addColorStop(0.42, '#7a2842'); // Crimson rose
+      grad.addColorStop(0.49, '#de4e18'); // Burning orange horizon
+      grad.addColorStop(0.52, '#ffa02e'); // Blazing golden sea line
+      grad.addColorStop(0.58, '#581824'); // Horizon sea reflection
+      grad.addColorStop(1.00, '#15060e'); // Nadir
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, 2048, 1024);
+
+      // Blazing Sunset Sun Orb aligned with camera look direction (azimuth ~ 225 deg -> x ~ 1300)
+      const sunX = 1320;
+      const sunY = 512;
+      const sunGlow = ctx.createRadialGradient(sunX, sunY, 15, sunX, sunY, 650);
+      sunGlow.addColorStop(0.00, 'rgba(255, 255, 235, 1)');
+      sunGlow.addColorStop(0.06, 'rgba(255, 225, 120, 0.98)');
+      sunGlow.addColorStop(0.20, 'rgba(255, 130, 35, 0.75)');
+      sunGlow.addColorStop(0.45, 'rgba(235, 65, 30, 0.40)');
+      sunGlow.addColorStop(0.75, 'rgba(160, 35, 60, 0.15)');
+      sunGlow.addColorStop(1.00, 'rgba(100, 20, 50, 0)');
+      ctx.fillStyle = sunGlow;
+      ctx.fillRect(0, 0, 2048, 1024);
+
+      // Glowing golden sun disk
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.arc(sunX, sunY, 34, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Glowing golden-rose sunset cloud bands across the horizon
+      for (let i = 0; i < 22; i++) {
+        const cx = (sunX - 700 + i * 75) % 2048;
+        const cy = 465 + Math.sin(i * 1.2) * 32;
+        const rx = 130 + (i % 6) * 30;
+        const ry = 16 + (i % 3) * 6;
+        const cloudGrad = ctx.createRadialGradient(cx, cy, 5, cx, cy, rx);
+        cloudGrad.addColorStop(0, 'rgba(255, 195, 110, 0.35)');
+        cloudGrad.addColorStop(0.6, 'rgba(240, 95, 45, 0.20)');
+        cloudGrad.addColorStop(1, 'rgba(180, 50, 70, 0)');
+        ctx.fillStyle = cloudGrad;
+        ctx.beginPath();
+        ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      const tex = new THREE.CanvasTexture(canvas);
+      tex.mapping = THREE.EquirectangularReflectionMapping;
+      return tex;
+    }
+    const sunsetSkyTex = createSunsetSkyTexture();
+
+    // Procedural Midnight Cosmos Panorama (without embedded dots)
+    function createNightSkyTexture() {
+      const canvas = document.createElement('canvas');
+      canvas.width = 2048;
+      canvas.height = 1024;
+      const ctx = canvas.getContext('2d');
+
+      // Deep obsidian-black midnight cosmos gradient
+      const grad = ctx.createLinearGradient(0, 0, 0, 1024);
+      grad.addColorStop(0.00, '#000206'); // Pitch black zenith
+      grad.addColorStop(0.35, '#01040e'); // Deep nocturnal obsidian
+      grad.addColorStop(0.50, '#030a1a'); // Horizon midnight sapphire
+      grad.addColorStop(0.55, '#010308'); // Ocean horizon line
+      grad.addColorStop(1.00, '#000104');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, 2048, 1024);
+
+      // Soft luminous Milky Way stardust nebula band
+      ctx.save();
+      ctx.translate(1024, 380);
+      ctx.rotate(-0.28);
+      const nebulaGrad = ctx.createLinearGradient(-800, -80, 800, 80);
+      nebulaGrad.addColorStop(0.0, 'rgba(10, 25, 55, 0)');
+      nebulaGrad.addColorStop(0.3, 'rgba(45, 80, 140, 0.28)');
+      nebulaGrad.addColorStop(0.5, 'rgba(70, 115, 185, 0.38)');
+      nebulaGrad.addColorStop(0.7, 'rgba(50, 90, 150, 0.26)');
+      nebulaGrad.addColorStop(1.0, 'rgba(10, 25, 55, 0)');
+      ctx.fillStyle = nebulaGrad;
+      ctx.fillRect(-1024, -140, 2048, 280);
+      ctx.restore();
+
+      const tex = new THREE.CanvasTexture(canvas);
+      tex.mapping = THREE.EquirectangularReflectionMapping;
+      return tex;
+    }
+    const nightSkyTex = createNightSkyTexture();
+
+    // High-Precision Circular Twinkling Starfield (Strictly above sea horizon, zero square pixels)
+    function createStarTexture() {
+      const canvas = document.createElement('canvas');
+      canvas.width = 64;
+      canvas.height = 64;
+      const ctx = canvas.getContext('2d');
+      const grad = ctx.createRadialGradient(32, 32, 0, 32, 32, 30);
+      grad.addColorStop(0.00, 'rgba(255, 255, 255, 1)');
+      grad.addColorStop(0.18, 'rgba(235, 245, 255, 0.9)');
+      grad.addColorStop(0.45, 'rgba(180, 215, 255, 0.35)');
+      grad.addColorStop(0.80, 'rgba(140, 185, 255, 0.08)');
+      grad.addColorStop(1.00, 'rgba(140, 185, 255, 0)');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, 64, 64);
+      return new THREE.CanvasTexture(canvas);
+    }
+
+    const starGeo = new THREE.BufferGeometry();
+    const starPos = [];
+    for (let i = 0; i < 1800; i++) {
+      const theta = Math.random() * Math.PI * 2;
+      const elev = 0.04 + Math.pow(Math.random(), 1.4) * 0.71; // Strictly 2.3° to 43° above horizon
+      const r = 130;
+      const xz = r * Math.cos(elev);
+      const y = r * Math.sin(elev);
+      starPos.push(xz * Math.sin(theta), y, xz * Math.cos(theta));
+    }
+    starGeo.setAttribute('position', new THREE.Float32BufferAttribute(starPos, 3));
+    const starMat = new THREE.PointsMaterial({
+      map: createStarTexture(),
+      size: 1.6,
+      sizeAttenuation: false,
+      transparent: true,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      fog: false
+    });
+    const stars = new THREE.Points(starGeo, starMat);
+    stars.visible = false;
+    scene.add(stars);
+
+    // Glowing 3D Moon with Atmospheric Corona (framed above island in camera FOV)
+    function createMoonTexture() {
+      const canvas = document.createElement('canvas');
+      canvas.width = 512;
+      canvas.height = 512;
+      const ctx = canvas.getContext('2d');
+
+      // Soft celestial outer glow
+      const glow = ctx.createRadialGradient(256, 256, 85, 256, 256, 250);
+      glow.addColorStop(0.00, 'rgba(245, 252, 255, 1)');
+      glow.addColorStop(0.35, 'rgba(195, 230, 255, 0.85)');
+      glow.addColorStop(0.70, 'rgba(130, 185, 255, 0.35)');
+      glow.addColorStop(1.00, 'rgba(80, 150, 255, 0)');
+      ctx.fillStyle = glow;
+      ctx.fillRect(0, 0, 512, 512);
+
+      // Crisp full moon disk
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.arc(256, 256, 95, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Realistic lunar crater shading
+      ctx.fillStyle = 'rgba(165, 190, 215, 0.42)';
+      ctx.beginPath();
+      ctx.arc(220, 235, 36, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(290, 275, 30, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(245, 310, 32, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(210, 285, 22, 0, Math.PI * 2);
+      ctx.fill();
+
+      return new THREE.CanvasTexture(canvas);
+    }
+
+    const moonGroup = new THREE.Group();
+    const moonTex = createMoonTexture();
+    const moonSpriteMat = new THREE.SpriteMaterial({
+      map: moonTex,
+      color: 0xffffff,
+      blending: THREE.AdditiveBlending,
+      fog: false
+    });
+    const moonSprite = new THREE.Sprite(moonSpriteMat);
+    moonSprite.scale.set(5.5, 5.5, 1);
+    moonGroup.add(moonSprite);
+
+    // Positioned in the upper night sky framed right behind the island in camera FOV
+    moonGroup.position.set(-14.0, 8.2, -16.0);
+    moonGroup.visible = false;
+    scene.add(moonGroup);
+
+    // Radiant 3D Sunset Sun with Solar Corona (framed on horizon in camera FOV)
+    function createSunTexture() {
+      const canvas = document.createElement('canvas');
+      canvas.width = 512;
+      canvas.height = 512;
+      const ctx = canvas.getContext('2d');
+
+      // Massive radiant golden-orange corona glow
+      const glow = ctx.createRadialGradient(256, 256, 35, 256, 256, 250);
+      glow.addColorStop(0.00, 'rgba(255, 255, 240, 1)');
+      glow.addColorStop(0.12, 'rgba(255, 220, 100, 0.95)');
+      glow.addColorStop(0.35, 'rgba(255, 120, 25, 0.65)');
+      glow.addColorStop(0.65, 'rgba(230, 60, 20, 0.25)');
+      glow.addColorStop(1.00, 'rgba(180, 40, 40, 0)');
+      ctx.fillStyle = glow;
+      ctx.fillRect(0, 0, 512, 512);
+
+      // Blazing sun disk
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.arc(256, 256, 50, 0, Math.PI * 2);
+      ctx.fill();
+
+      return new THREE.CanvasTexture(canvas);
+    }
+
+    const sunGroup = new THREE.Group();
+    const sunTex = createSunTexture();
+    const sunSpriteMat = new THREE.SpriteMaterial({
+      map: sunTex,
+      color: 0xffffff,
+      blending: THREE.AdditiveBlending,
+      fog: false
+    });
+    const sunSprite = new THREE.Sprite(sunSpriteMat);
+    sunSprite.scale.set(7.5, 7.5, 1);
+    sunGroup.add(sunSprite);
+    sunGroup.position.set(-18.0, 5.8, -18.0);
+    sunGroup.visible = false;
+    scene.add(sunGroup);
+
+    // Warm Cottage Porch Point Light & Patio Fill (pure light sources, no physical lamp mesh)
+    const cottageLight = new THREE.PointLight(0xffa035, 0, 24, 1.15);
+    cottageLight.position.set(-0.70, 2.60, 1.45);
+    cottageLight.castShadow = false; // Disabling castShadow prevents PBR wall self-occlusion
+    scene.add(cottageLight);
+    window.cottageLight = cottageLight;
+
+    const cottageFill = new THREE.PointLight(0xff8820, 0, 16, 1.2);
+    cottageFill.position.set(0.15, 2.65, 1.15);
+    cottageFill.castShadow = false;
+    scene.add(cottageFill);
+    window.cottageFill = cottageFill;
+
+    // -------------------------------------------------------------
+    // Calibrated Lighting Rig
+    // -------------------------------------------------------------
+    const hemiLight = new THREE.HemisphereLight(0x8ac7ff, 0x4a3a2a, 0.85);
+    scene.add(hemiLight);
+
+    const sunLight = new THREE.DirectionalLight(0xfff4dc, 2.6);
+    sunLight.position.set(-14, 20, 12);
+    sunLight.castShadow = true;
+    sunLight.shadow.mapSize.width = 2048;
+    sunLight.shadow.mapSize.height = 2048;
+    sunLight.shadow.camera.near = 1;
+    sunLight.shadow.camera.far = 60;
+    const d = 14;
+    sunLight.shadow.camera.left = -d;
+    sunLight.shadow.camera.right = d;
+    sunLight.shadow.camera.top = d;
+    sunLight.shadow.camera.bottom = -d;
+    sunLight.shadow.bias = -0.0001;
+    sunLight.shadow.normalBias = 0.02;
+    sunLight.shadow.radius = 2.0;
+    scene.add(sunLight);
+
+    const fillLight = new THREE.DirectionalLight(0xffeedb, 0.75);
+    fillLight.position.set(14, 12, 14);
+    scene.add(fillLight);
+
+    const seaBounceLight = new THREE.DirectionalLight(0x00d2ff, 0.45);
+    seaBounceLight.position.set(8, -4, 8);
+    scene.add(seaBounceLight);
+
+    // -------------------------------------------------------------
+    // Golden Sand Seabed Shelf (Slopes naturally under the water)
+    // -------------------------------------------------------------
+    const sandGeo = new THREE.PlaneGeometry(80, 80, 64, 64);
+    sandGeo.rotateX(-Math.PI / 2);
+    const sPos = sandGeo.attributes.position;
+    for (let i = 0; i < sPos.count; i++) {
+      const x = sPos.getX(i), z = sPos.getZ(i);
+      const r = Math.hypot(x, z);
+      // Gentle underwater bowl deepening away from island
+      const depth = -0.4 - Math.pow(Math.min(r / 22.0, 1.0), 1.2) * 4.8;
+      sPos.setY(i, depth);
+    }
+    sandGeo.computeVertexNormals();
+
+    const sandMat = new THREE.MeshStandardMaterial({
+      color: 0xdeb879,
+      roughness: 0.95,
+      metalness: 0.0
+    });
+    const sandMesh = new THREE.Mesh(sandGeo, sandMat);
+    sandMesh.receiveShadow = true;
+    scene.add(sandMesh);
+
+    // -------------------------------------------------------------
+    // Physical Transmission Water: Real Refraction & Depth Color
+    // -------------------------------------------------------------
+    const texLoader = new THREE.TextureLoader();
+    const waterNormalTex = texLoader.load('./textures/waternormals.jpg');
+    waterNormalTex.wrapS = waterNormalTex.wrapT = THREE.RepeatWrapping;
+    waterNormalTex.repeat.set(16, 16);
+
+    const waterMat = new THREE.MeshPhysicalMaterial({
+      color: 0x00bcd4,
+      roughness: 0.04,
+      metalness: 0.02,
+      transmission: 0.88,
+      ior: 1.333,
+      thickness: 2.2,
+      attenuationColor: 0x004466, // Deep turquoise-blue absorption
+      attenuationDistance: 4.5,
+      normalMap: waterNormalTex,
+      normalScale: new THREE.Vector2(0.35, 0.35),
+      clearcoat: 1.0,
+      clearcoatRoughness: 0.03
+    });
+
+    const waterMesh = new THREE.Mesh(new THREE.PlaneGeometry(600, 600), waterMat);
+    waterMesh.rotateX(-Math.PI / 2);
+    // Water height calibrated to meet the boat and pier waterline naturally
+    waterMesh.position.y = 0.22;
+    waterMesh.receiveShadow = true;
+    scene.add(waterMesh);
+
+    // -------------------------------------------------------------
+    // User Complete 3D Diorama Models (PBR & Shaded)
+    // -------------------------------------------------------------
+    const gltfLoader = new GLTFLoader();
+    let currentModel = null;
+    let pbrScene = null;
+    let shadedScene = null;
+    let isPbrMode = true;
+
+    const MODEL_SCALE = 6.2;
+    const progressEl = document.getElementById('progress-text');
+
+    function setupModelMesh(model) {
+      model.scale.setScalar(MODEL_SCALE);
+      model.position.set(0, 0, 0);
+      model.traverse(c => {
+        if (c.isMesh) {
+          c.castShadow = true;
+          c.receiveShadow = true;
+          if (c.material) {
+            c.material.roughness = 0.88;
+            c.material.metalness = 0.05;
+          }
+        }
+      });
+    }
+
+    // Load PBR Model (Primary)
+    gltfLoader.load('./base_basic_pbr.glb', (gltf) => {
+      pbrScene = gltf.scene;
+      setupModelMesh(pbrScene);
+      scene.add(pbrScene);
+      currentModel = pbrScene;
+      window.currentModel = currentModel;
+
+      const loaderEl = document.getElementById('loading');
+      loaderEl.style.opacity = '0';
+      setTimeout(() => loaderEl.style.display = 'none', 600);
+    }, (xhr) => {
+      if (xhr.lengthComputable) {
+        const pct = Math.round((xhr.loaded / xhr.total) * 100);
+        progressEl.innerText = `Loading Diorama PBR Model: ${pct}%...`;
+      }
+    }, (err) => {
+      console.error('Error loading PBR model:', err);
+      progressEl.innerText = `Error: ${err.message}`;
+    });
+
+    // Switch Model Button Handler
+    const switchBtn = document.getElementById('btn-switch-model');
+    switchBtn.addEventListener('click', () => {
+      if (isPbrMode) {
+        // Switch to Shaded
+        if (shadedScene) {
+          scene.remove(pbrScene);
+          scene.add(shadedScene);
+          currentModel = shadedScene;
+          isPbrMode = false;
+          switchBtn.textContent = 'Mode: Shaded Baked';
+        } else {
+          switchBtn.textContent = 'Loading Shaded...';
+          gltfLoader.load('./base_basic_shaded.glb', (gltf) => {
+            shadedScene = gltf.scene;
+            setupModelMesh(shadedScene);
+            scene.remove(pbrScene);
+            scene.add(shadedScene);
+            currentModel = shadedScene;
+            isPbrMode = false;
+            switchBtn.textContent = 'Mode: Shaded Baked';
+          });
+        }
+      } else {
+        // Switch to PBR
+        scene.remove(shadedScene);
+        scene.add(pbrScene);
+        currentModel = pbrScene;
+        isPbrMode = true;
+        switchBtn.textContent = 'Mode: PBR Textures';
+      }
+    });
+
+    // -------------------------------------------------------------
+    // Dynamic Celestial Lighting & Atmosphere Presets
+    // -------------------------------------------------------------
+    const presets = {
+      noon: {
+        type: 'noon',
+        sunPos: [-14, 20, 12],
+        sunCol: 0xfff4dc,
+        sunInt: 2.6,
+        hemiSky: 0x8ac7ff,
+        hemiGnd: 0x4a3a2a,
+        hemiInt: 0.85,
+        fillCol: 0xffeedb,
+        fillInt: 0.75,
+        seaBounceInt: 0.45,
+        waterCol: 0x00bcd4,
+        waterAtten: 0x004466,
+        waterRough: 0.04,
+        waterTrans: 0.88,
+        waterMetal: 0.02,
+        envInt: 1.15,
+        exposure: 1.05,
+        cottageLightInt: 0.0,
+        cottageFillInt: 0.0,
+        fogColor: 0xa0d8f0,
+        fogDensity: 0.007,
+        hasStars: false,
+        hasMoon: false
+      },
+      golden: {
+        type: 'golden',
+        sunPos: [-18.0, 10.5, -14.0],
+        sunCol: 0xffa84e,
+        sunInt: 3.6,
+        hemiSky: 0xffd4a8,
+        hemiGnd: 0x3d2a1d,
+        hemiInt: 0.80,
+        fillCol: 0xff9944,
+        fillInt: 0.85,
+        seaBounceInt: 0.65,
+        waterCol: 0x188a96,
+        waterAtten: 0x402010,
+        waterRough: 0.045,
+        waterTrans: 0.84,
+        waterMetal: 0.02,
+        envInt: 1.05,
+        exposure: 1.10,
+        cottageLightInt: 5.0,
+        cottageFillInt: 2.2,
+        hasSun: true,
+        hasMoon: false
+      },
+      sunset: {
+        type: 'sunset',
+        sunPos: [-18.0, 5.8, -18.0], // Positioned right with the 3D Sunset Sun disk
+        sunCol: 0xff621e,           // Burning sunset orange
+        sunInt: 5.5,                // Long shadows and intense blazing sun glade across water!
+        hemiSky: 0xff7542,          // Warm dusk ambient glow
+        hemiGnd: 0x32161c,
+        hemiInt: 0.85,
+        fillCol: 0xff4010,
+        fillInt: 0.95,
+        seaBounceInt: 0.85,
+        waterCol: 0x54121c,         // Rich sunset amber-rose
+        waterAtten: 0x240408,
+        waterRough: 0.05,           // Wide glassy specular ribbon spreading across waves
+        waterTrans: 0.28,           // Dense enough to receive sharp dark cast shadows!
+        waterMetal: 0.05,
+        envInt: 0.95,
+        exposure: 1.05,
+        cottageLightInt: 10.0,      // Warm golden porch wash
+        cottageFillInt: 4.5,
+        hasSun: true,
+        hasMoon: false
+      },
+      night: {
+        type: 'night',
+        sunPos: [-14.0, 10.5, -16.0], // Positioned above island to cast silvery reflection across water
+        sunCol: 0xd8eeff,            // Crisp silvery moonlight
+        sunInt: 3.8,                 // Shimmering specular moon glint across the ripples
+        hemiSky: 0x122035,           // Deep navy night ambience
+        hemiGnd: 0x02050b,
+        hemiInt: 0.40,
+        fillCol: 0x0e1826,
+        fillInt: 0.25,
+        seaBounceInt: 0.15,
+        waterCol: 0x020d1c,          // Deep midnight sapphire ocean
+        waterAtten: 0x01040a,
+        waterRough: 0.07,            // Crisp specular sparkles on wave crests
+        waterTrans: 0.12,            // Rich body reflecting the moon trail
+        waterMetal: 0.08,            // Specular moonlight reflection
+        envInt: 0.15,
+        exposure: 1.05,
+        cottageLightInt: 15.0,       // Radiant golden porch and facade wash across PBR textures
+        cottageFillInt: 6.5,
+        hasSun: false,
+        hasMoon: true
+      }
+    };
+
+    function applyPreset(p) {
+      sunLight.position.set(...p.sunPos);
+      sunLight.color.set(p.sunCol);
+      sunLight.intensity = p.sunInt;
+
+      hemiLight.color.set(p.hemiSky);
+      hemiLight.groundColor.set(p.hemiGnd);
+      hemiLight.intensity = p.hemiInt;
+
+      fillLight.color.set(p.fillCol);
+      fillLight.intensity = p.fillInt;
+      seaBounceLight.intensity = p.seaBounceInt;
+
+      cottageLight.intensity = p.cottageLightInt;
+      cottageFill.intensity = p.cottageFillInt || 0.0;
+
+      waterMat.color.set(p.waterCol);
+      waterMat.attenuationColor.set(p.waterAtten);
+      waterMat.roughness = p.waterRough;
+      waterMat.transmission = p.waterTrans;
+      waterMat.metalness = p.waterMetal;
+
+      renderer.toneMappingExposure = p.exposure;
+      scene.environmentIntensity = p.envInt;
+      scene.backgroundBlurriness = 0.0;
+
+      sunGroup.visible = !!p.hasSun;
+      if (p.hasSun) {
+        sunGroup.position.set(...p.sunPos);
+      }
+      moonGroup.visible = !!p.hasMoon;
+      stars.visible = (p.type === 'night');
+
+      if (p.type === 'night') {
+        scene.background = nightSkyTex;
+        scene.environment = nightSkyTex;
+        scene.fog = new THREE.FogExp2(0x040e1c, 0.007); // Seamless blend into nocturnal horizon
+      } else if (p.type === 'golden' || p.type === 'sunset') {
+        scene.fog = null;
+        scene.background = sunsetSkyTex;
+        scene.environment = sunsetSkyTex;
+      } else {
+        scene.fog = null;
+        if (hdrNoon) {
+          scene.background = hdrNoon;
+          scene.environment = hdrNoon;
+        }
+      }
+    }
+
+    const btnNoon = document.getElementById('btn-noon');
+    const btnGolden = document.getElementById('btn-golden');
+    const btnSunset = document.getElementById('btn-sunset');
+    const btnNight = document.getElementById('btn-night');
+    const btns = [btnNoon, btnGolden, btnSunset, btnNight];
+
+    function setActiveBtn(target) {
+      btns.forEach(b => b.classList.remove('active'));
+      target.classList.add('active');
+    }
+
+    btnNoon.addEventListener('click', () => { setActiveBtn(btnNoon); applyPreset(presets.noon); });
+    btnGolden.addEventListener('click', () => { setActiveBtn(btnGolden); applyPreset(presets.golden); });
+    btnSunset.addEventListener('click', () => { setActiveBtn(btnSunset); applyPreset(presets.sunset); });
+    btnNight.addEventListener('click', () => { setActiveBtn(btnNight); applyPreset(presets.night); });
+
+    // -------------------------------------------------------------
+    // Continuous Cinematic 360° Orbit (Xoay cố định 360° xung quanh đảo)
+    // -------------------------------------------------------------
+    let isCinematic = false;
+    const btnCinematic = document.getElementById('btn-cinematic');
+
+    function startCinematicOrbit() {
+      isCinematic = true;
+      document.body.classList.add('cinematic-active');
+      btnCinematic.classList.add('active');
+      btnCinematic.textContent = '🎬 Dừng xoay điện ảnh';
+
+      // Lock fixed orbit center, radius and height (preventing any zoom creep)
+      controls.target.set(0.0, 1.6, 0.0);
+      camera.position.set(12.5, 4.6, 12.5);
+      camera.fov = 31;
+      camera.updateProjectionMatrix();
+      controls.update();
+
+      const fixedDist = camera.position.distanceTo(controls.target);
+      const fixedPolar = controls.getPolarAngle();
+
+      controls.minDistance = fixedDist;
+      controls.maxDistance = fixedDist;
+      controls.minPolarAngle = fixedPolar;
+      controls.maxPolarAngle = fixedPolar;
+      controls.autoRotate = true;
+      controls.autoRotateSpeed = 0.85; // Smooth cinematic 360° orbit around the island
+    }
+
+    function stopCinematicOrbit() {
+      isCinematic = false;
+      document.body.classList.remove('cinematic-active');
+      btnCinematic.classList.remove('active');
+      btnCinematic.textContent = '🎬 Góc nhìn điện ảnh';
+
+      // Unlock free interactive orbit controls
+      controls.autoRotate = false;
+      controls.minDistance = 4;
+      controls.maxDistance = 55;
+      controls.minPolarAngle = 0;
+      controls.maxPolarAngle = Math.PI / 2 - 0.02;
+    }
+
+    btnCinematic.addEventListener('click', () => {
+      if (!isCinematic) {
+        startCinematicOrbit();
+      } else {
+        stopCinematicOrbit();
+      }
+    });
+
+    document.getElementById('btn-reset').addEventListener('click', () => {
+      stopCinematicOrbit();
+      camera.position.copy(defaultCamPos);
+      controls.target.copy(defaultCamTarget);
+      camera.fov = 35;
+      camera.updateProjectionMatrix();
+      controls.update();
+    });
+
+    let isAnimPlaying = true;
+    const btnAnim = document.getElementById('btn-anim');
+    btnAnim.addEventListener('click', () => {
+      isAnimPlaying = !isAnimPlaying;
+      btnAnim.textContent = isAnimPlaying ? 'Pause Waves' : 'Play Waves';
+    });
+
+    // -------------------------------------------------------------
+    // Animation Loop
+    // -------------------------------------------------------------
+    const clock = new THREE.Clock();
+
+    function animate() {
+      requestAnimationFrame(animate);
+      const elapsed = clock.getElapsedTime();
+
+      if (isAnimPlaying) {
+        waterNormalTex.offset.x = elapsed * 0.015;
+        waterNormalTex.offset.y = elapsed * 0.012;
+      }
+
+      controls.update();
+      renderer.render(scene, camera);
+    }
+
+    animate();
+
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,21 @@
+# Only track necessary files for production web
+# Exclude raw zip, backup, docs and reverse engineering analysis
+1c699960-e678-49a5-972b-ac56edab07db.zip
+*.zip
+*.bak
+MODEL_ANALYSIS.md
+analysis/
+models/
+test_*.html
+
+# Inside textures/, only keep assets required by index.html
+textures/*
+!textures/aristea_wreck_puresky_1k.hdr
+!textures/waternormals.jpg
+
+# OS / Editor artifacts
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+memory/
